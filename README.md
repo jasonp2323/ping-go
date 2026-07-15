@@ -58,6 +58,35 @@ $env:GOOS="windows"; $env:GOARCH="amd64"; go build -o ping-go.exe .\cmd\ping-go
 go build -o ping-go ./cmd/ping-go
 ```
 
+## Downloads
+
+Pre-built binaries for **Linux** and **Windows** (amd64) are attached to every
+release on the [Releases page](../../releases). Grab the file matching your OS:
+
+- `ping-go-<version>-linux-amd64` — Linux
+- `ping-go-<version>-windows-amd64.exe` — Windows
+
+## CI & Releases
+
+Two GitHub Actions workflows live under `.github/workflows/`:
+
+- **`ci.yml`** — runs on every push and pull request against `master`. It
+  checks `gofmt` formatting, then builds, `go vet`s, and runs the test suite
+  (with the race detector).
+- **`release.yml`** — runs when a version tag is pushed. It cross-compiles
+  static binaries for Linux and Windows and uploads them to a GitHub Release
+  with auto-generated release notes.
+
+Cutting a release is just a tag push:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The workflow builds the binaries and publishes them to the Releases page under
+that tag.
+
 ## Usage
 
 ```

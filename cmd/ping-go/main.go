@@ -31,6 +31,18 @@ type config struct {
 	privileged bool
 }
 
+// parseHosts splits a comma-separated host list, trimming surrounding
+// whitespace and dropping empty entries.
+func parseHosts(s string) []string {
+	var hosts []string
+	for _, h := range strings.Split(s, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
 func parseFlags() config {
 	hostsFlag := flag.String("hosts", "", "Comma-separated list of hosts to ping (e.g. google.com,8.8.8.8)")
 	screen := flag.Bool("screen", true, "Print output to screen")
@@ -50,12 +62,7 @@ func parseFlags() config {
 		os.Exit(1)
 	}
 
-	var hosts []string
-	for _, h := range strings.Split(*hostsFlag, ",") {
-		if h = strings.TrimSpace(h); h != "" {
-			hosts = append(hosts, h)
-		}
-	}
+	hosts := parseHosts(*hostsFlag)
 
 	return config{
 		hosts:      hosts,
