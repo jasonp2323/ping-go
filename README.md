@@ -41,7 +41,9 @@ replies; `err="..."` appears on errors.
   UDP-based ping, which needs the `net.ipv4.ping_group_range` sysctl to include
   your group (the common case on modern desktop Linux). If that's not set, run
   with `-privileged` and either `root` or the `CAP_NET_RAW` capability. On
-  **Windows** no special privileges are required.
+  **Windows** no special privileges are required — Windows has no unprivileged
+  UDP ping, so the tool always uses raw ICMP there and the `-privileged` flag is
+  ignored.
 
 ## Building
 
@@ -74,7 +76,7 @@ ping-go -hosts=<host1,host2,...> [flags]
 | `-count`      | `4`        | Number of echoes per host (ignored if `-duration` is set)                    |
 | `-timeout`    | `5s`       | Max time to wait for a single ping invocation, e.g. `2s`, `500ms`             |
 | `-duration`   | `0`        | Keep pinging each host for this long, e.g. `30s`, `2m` (overrides `-count`)   |
-| `-privileged` | `false`    | Use raw ICMP sockets (Linux/macOS: needs root/`CAP_NET_RAW`); default is unprivileged UDP |
+| `-privileged` | `false`    | Use raw ICMP sockets (Linux/macOS: needs root/`CAP_NET_RAW`); default is unprivileged UDP. Ignored on Windows (always raw ICMP) |
 | `-daemon`     | `false`    | Detach and run in the background                                             |
 
 ### Examples (PowerShell)
@@ -123,6 +125,23 @@ discarded.
 
 There is currently no built-in PID file or `-stop` flag; track the printed
 PID yourself, or use `Get-Process` / `ps` to find it later.
+
+## Testing
+
+```bash
+# Fast, deterministic unit tests (output formatting for every option combo)
+go test ./...
+
+# Also run the real loopback ICMP smoke test (catches platform/privilege
+# regressions like Windows rejecting unprivileged UDP ping)
+PINGGO_INTEGRATION=1 go test ./...
+```
+
+CI (`.github/workflows/ci.yml`) runs `gofmt`, `go vet`, `go build`, and the
+full test suite — including the loopback integration test — on **Linux,
+Windows, and macOS**, so a platform-specific socket error is caught before it
+ships. The Linux job enables unprivileged ping via
+`net.ipv4.ping_group_range`; Windows uses raw ICMP automatically.
 
 ## Project layout
 

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Check formatting
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      # Allow unprivileged (UDP) ICMP so the loopback integration test can
+      # send echoes without root. Windows always uses raw ICMP (handled in
+      # code); macOS permits unprivileged ping by default.
+      - name: Enable unprivileged ping (Linux)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
+
+      - name: Test (with loopback ICMP integration)
+        shell: bash
+        env:
+          PINGGO_INTEGRATION: "1"
+        run: go test -v ./...

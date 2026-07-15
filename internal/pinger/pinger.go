@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"time"
 
@@ -75,6 +76,12 @@ func pingOnce(ctx context.Context, host, ip string, seq int, timeout time.Durati
 	}
 	if ip != "" {
 		p.SetIPAddr(&net.IPAddr{IP: net.ParseIP(ip)})
+	}
+	// Windows has no unprivileged UDP-based ping; attempting it fails with
+	// "the requested protocol has not been configured into the system", so
+	// always use raw ICMP there (which needs no admin rights on Windows).
+	if runtime.GOOS == "windows" {
+		privileged = true
 	}
 	p.SetPrivileged(privileged)
 	p.Count = 1
