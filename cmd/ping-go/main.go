@@ -28,6 +28,7 @@ type config struct {
 	timeout    time.Duration
 	duration   time.Duration
 	daemon     bool
+	privileged bool
 }
 
 func parseFlags() config {
@@ -40,6 +41,7 @@ func parseFlags() config {
 	timeout := flag.Duration("timeout", 5*time.Second, "Timeout per ping invocation, e.g. 3s, 500ms")
 	duration := flag.Duration("duration", 0, "Keep pinging each host for this long, e.g. 30s, 2m (overrides -count)")
 	daemon := flag.Bool("daemon", false, "Detach and run in the background")
+	privileged := flag.Bool("privileged", false, "Use raw ICMP sockets (needs root/CAP_NET_RAW on Linux/macOS); default is unprivileged UDP")
 	flag.Parse()
 
 	if *hostsFlag == "" {
@@ -65,6 +67,7 @@ func parseFlags() config {
 		timeout:    *timeout,
 		duration:   *duration,
 		daemon:     *daemon,
+		privileged: *privileged,
 	}
 }
 
@@ -99,7 +102,9 @@ func main() {
 			os.Exit(1)
 		}
 		defer f.Close()
-		logger = log.New(f, "", log.LstdFlags)
+		// Each line already carries its own RFC3339 timestamp, so the
+		// logger adds no prefix or flags of its own.
+		logger = log.New(f, "", 0)
 	}
 
 	// Once detached there's no terminal to write to, so screen output is
@@ -110,45 +115,39 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Warning: -screen=false and -log=false means output goes nowhere.")
 	}
 
-	report := func(res pinger.Result) {
-		header := fmt.Sprintf("=== Ping %s at %s ===", res.Host, res.Timestamp.Format("2006-01-02 15:04:05"))
-
+	// emit writes a single ping event as one line to the enabled sinks.
+	// The mutex keeps individual lines from interleaving when hosts are
+	// pinged concurrently; each line stands alone (it names its own host
+	// and timestamp), so streaming interleaved lines is fine for a log.
+	var mu sync.Mutex
+	emit := func(ev pinger.Event) {
+		line := ev.LogLine()
+		mu.Lock()
+		defer mu.Unlock()
 		if effectiveScreen {
-			fmt.Println(header)
-			fmt.Println(res.Output)
-			if res.Err != nil {
-				fmt.Fprintf(os.Stderr, "Error pinging %s: %v\n", res.Host, res.Err)
-			}
+			fmt.Println(line)
 		}
 		if logger != nil {
-			logger.Println(header)
-			logger.Println(res.Output)
-			if res.Err != nil {
-				logger.Printf("Error pinging %s: %v\n", res.Host, res.Err)
-			}
+			logger.Println(line)
 		}
 	}
 
 	runOne := func(ctx context.Context, host string) {
 		if cfg.duration > 0 {
-			output := pinger.RunForDuration(ctx, host, cfg.timeout, cfg.duration)
-			report(pinger.Result{Host: host, Output: output, Timestamp: time.Now()})
+			pinger.RunForDuration(ctx, host, cfg.timeout, cfg.duration, cfg.privileged, emit)
 			return
 		}
-		report(pinger.Once(ctx, host, cfg.count, cfg.timeout))
+		pinger.Once(ctx, host, cfg.count, cfg.timeout, cfg.privileged, emit)
 	}
 
 	ctx := context.Background()
 
 	if cfg.concurrent && len(cfg.hosts) > 1 {
 		var wg sync.WaitGroup
-		var mu sync.Mutex // serializes writes so concurrent results don't interleave
 		for _, host := range cfg.hosts {
 			wg.Add(1)
 			go func(h string) {
 				defer wg.Done()
-				mu.Lock()
-				defer mu.Unlock()
 				runOne(ctx, h)
 			}(host)
 		}

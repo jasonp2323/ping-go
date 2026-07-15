@@ -10,16 +10,38 @@ Built primarily for Windows (PowerShell), but works on Linux and macOS too.
 ## Features
 
 - Ping one host or several, comma-separated
+- **Structured, log-friendly output**: one timestamped `key=value` line per echo — no chatty native `ping` text
+- Native ICMP via [`pro-bing`](https://github.com/prometheus-community/pro-bing) — no dependency on the OS `ping` binary
 - Run hosts sequentially or **concurrently**
 - Fixed echo count, or ping continuously for a **duration**
 - Per-ping **timeout** so a hung/unreachable host can't block forever
 - Optional **screen output**, optional **file logging**, or both
 - Optional self-**daemonizing**: detaches into the background and returns your prompt immediately
 
+## Output format
+
+Every echo is emitted as a single line, suitable for dropping straight into a log:
+
+```
+2026-07-15T17:30:01Z host=google.com ip=142.250.80.46 status=reply seq=1 rtt=12.3ms ttl=118
+2026-07-15T17:30:02Z host=google.com ip=142.250.80.46 status=reply seq=2 rtt=11.8ms ttl=118
+2026-07-15T17:30:03Z host=google.com status=timeout seq=3
+```
+
+The leading field is a sortable **RFC3339 UTC timestamp**; everything else is
+`key=value` (logfmt style), so the output is easy to `grep`, `awk`, or parse.
+`status` is one of `reply`, `timeout`, or `error`. `rtt`/`ttl` appear only on
+replies; `err="..."` appears on errors.
+
 ## Requirements
 
 - Go 1.22+ to build
-- The OS-native `ping` binary must be on `PATH` (present by default on Windows, and on Linux via `iputils-ping` / macOS out of the box)
+- No external `ping` binary needed — ICMP is sent directly by the program
+- **Privileges (Linux/macOS only):** by default the tool uses *unprivileged*
+  UDP-based ping, which needs the `net.ipv4.ping_group_range` sysctl to include
+  your group (the common case on modern desktop Linux). If that's not set, run
+  with `-privileged` and either `root` or the `CAP_NET_RAW` capability. On
+  **Windows** no special privileges are required.
 
 ## Building
 
@@ -52,6 +74,7 @@ ping-go -hosts=<host1,host2,...> [flags]
 | `-count`      | `4`        | Number of echoes per host (ignored if `-duration` is set)                    |
 | `-timeout`    | `5s`       | Max time to wait for a single ping invocation, e.g. `2s`, `500ms`             |
 | `-duration`   | `0`        | Keep pinging each host for this long, e.g. `30s`, `2m` (overrides `-count`)   |
+| `-privileged` | `false`    | Use raw ICMP sockets (Linux/macOS: needs root/`CAP_NET_RAW`); default is unprivileged UDP |
 | `-daemon`     | `false`    | Detach and run in the background                                             |
 
 ### Examples (PowerShell)
@@ -105,7 +128,7 @@ PID yourself, or use `Get-Process` / `ps` to find it later.
 
 ```
 cmd/ping-go/        CLI entry point: flag parsing, orchestration, output routing
-internal/pinger/      Wraps the OS ping binary; handles single pings and duration-based runs
+internal/pinger/      Sends ICMP via pro-bing; emits one structured Event per echo
 internal/daemonize/   Self-detach logic; platform-specific bits isolated via build tags
 ```
 
@@ -117,5 +140,5 @@ what lets the same codebase cross-compile cleanly for both.
 ## Known limitations / ideas for later
 
 - No PID file, so scripting a clean stop requires noting the PID manually
-- No structured (JSON/CSV) output mode — currently just wraps raw `ping` output
+- Output is logfmt-style text only; a JSON-lines mode could be added behind a `-format` flag
 - `-duration` mode currently sleeps 1 second between pings; not configurable yet
